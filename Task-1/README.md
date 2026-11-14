@@ -1,201 +1,107 @@
-# Task 1: Multi-container Pods (init container and sidecar)
 
-## Overview
 
-A 3-node minikube cluster runs an nginx "hello" page whose time refreshes every 5 seconds. Each Pod in the Deployment has three containers and no volumes:
 
-| Container | Type | Job |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Readme · MD
+# Task Session 2: FastAPI + MySQL with ConfigMap, Secret & Ingress
+ 
+## Description
+ 
+A FastAPI guestbook app (2 replicas) with one MySQL server, deployed on a 3-node minikube cluster:
+ 
+- MySQL keeps its data on a **PV + PVC**, so the data survives Pod restarts.
+- The app settings are in a **ConfigMap**, and the MySQL credentials are in a **Secret**.
+- Users reach the app through an **Ingress** (NGINX Ingress Controller).
+The app (`webapp/`) and the MySQL image (`mysql/`) are provided. They are built, not changed.
+ 
+## Architecture
+ 
+![alt text](image-28.png)
+ 
+Browser → Ingress Controller → Ingress `webapp-ingress` → Service `webapp-api` (80 → 8000) → 2 app Pods → Service `mysql` (3306) → MySQL Pod → `mysql-pvc` → `mysql-pv` (on `minikube-m02`).
+ 
+## What was done
+ 
+| Step | Action | File |
 |---|---|---|
-| `init-done` | Init container | Prints `done` and exits. The other containers start only if it succeeds. |
-| `nginx` | Main container | Writes `index.html` with the current time, then serves it on port 80. |
-| `time-updater` | Sidecar | Rewrites `index.html` with the new time every 5 seconds. |
+| 1 | Built `webapp-api:task2` and `webapp-mysql:task2` and loaded them into minikube | - |
+| 2 | Created the namespace `webapp-stack` | `01-namespace.yaml` |
+| 3 | Created the Secret `mysql-secret` (root password, app user, app password) | `02-secret.yaml` |
+| 4 | Created the ConfigMap `webapp-config` (app title, environment, MySQL host, port and database) | `03-configmap.yaml` |
+| 5 | Created the PV `mysql-pv` (hostPath, 2Gi, pinned to `minikube-m02`) and the PVC `mysql-pvc` | `04-pv-pvc.yaml` |
+| 6 | Deployed MySQL (1 replica, `Recreate`, data on `mysql-pvc`) with the Service `mysql` | `05-mysql.yaml` |
+| 7 | Deployed the app (2 replicas, settings from the ConfigMap, credentials from the Secret) with the Service `webapp-api` | `06-webapp.yaml` |
+| 8 | Installed the NGINX Ingress Controller (`minikube addons enable ingress`) | - |
+| 9 | Created the Ingress `webapp-ingress` (`/` → `webapp-api:80`) | `07-ingress.yaml` |
+| 10 | Opened the app with `kubectl port-forward` to the Ingress Controller (http://localhost:8080) | - |
+ 
+The files are applied in this order, so everything a Pod refers to by name already exists when the Pod starts.
+ 
+## Verification
+ 
+- The `minikube image ls` output showing both `webapp-api:task2` and `webapp-mysql:task2`
+![minikube image ls](image-13.png)
+ 
+- Secret (`DATA 3`) and ConfigMap (`DATA 5`)
+![Secret and ConfigMap](image-14.png)
+ 
+- PV and PVC bound (`2Gi`)
+![PV and PVC bound](image-15.png)
+ 
+- Deployments ready (`mysql 1/1`, `webapp-api 2/2`)
+![Deployments ready](image-17.png)
+ 
+- 5: MySQL on the PV node (`minikube-m02`)
+![MySQL on the PV node](image-16.png)
+ 
+- 6: App env (values from the ConfigMap and the Secret)
+![App env](image-19.png)
+ 
+- 7: Default data (2 default messages)
+![Default data](image-18.png)
+ 
+- 8: Ingress (class `nginx`, address filled)
+![Ingress](image-20.png)
+ 
+- The app in the browser
+![Screenshot of the page](image-21.png)
+ 
+- 9: App info
+![App info](image-22.png)
+ 
+- 10: Write a message
+![Write a message](image-24.png)
+ 
+- 11: Read messages
+![Read messages](image-25.png)
+ 
+- 12: Data survives a restart (the MySQL Pod was deleted and recreated, and the message is still there)
+![MySQL Pod deleted and recreated](image-26.png)
+ 
+![Messages after the restart](image-27.png)
+ 
+## Notes
+ 
+- **Windows and `chmod -x`:** PowerShell has no `chmod`, and Docker marks files from a Windows folder as executable. The MySQL image was built under a temporary tag, then one extra layer ran `chmod -x /docker-entrypoint-initdb.d/01-setup.sh` and the result was tagged `webapp-mysql:task2`. The provided files are unchanged.
+- **`MYSQL_PORT`:** kept in the ConfigMap, because Kubernetes injects `MYSQL_PORT=tcp://<ip>:3306` for the Service named `mysql`, and the ConfigMap value (`3306`) replaces it.
+- **Reaching the Ingress on Windows:** the Ingress address (`192.168.49.2`) is inside Docker's network, so the app is opened through `kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80`.
+- **PowerShell:** `curl.exe` is used instead of `curl`, with the JSON quotes escaped.
+- All resources are kept for Task 3.
+ 
 
-In the last part of the task, the init container is made to fail to see how Kubernetes handles a broken rollout.
-
-## How the sidecar updates the page
-
-The Pod has no shared volume, so the sidecar reaches nginx's files through the process tree:
-
-- `shareProcessNamespace: true` puts all containers in one process namespace, so the sidecar can find nginx's PID with `pgrep -o nginx`.
-- `/proc/<pid>/root` is the filesystem of that process, so `/proc/<pid>/root/usr/share/nginx/html/index.html` is the file nginx serves.
-- The `SYS_PTRACE` capability is required to access another process's `/proc` entries.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `namespace.yaml` | Creates the `webapp` namespace |
-| `deployment.yaml` | Deployment `web-deployment` (3 replicas, label `app: web`) |
-| `screenshots/` | Screenshots referenced below |
-
-## 1. Create the cluster
-
-One control-plane node and two workers, with the Calico network plugin. `--memory` is a per-node limit.
-
-```powershell
-minikube start --nodes 3 --cni=calico --cpus 2 --memory 2200
-kubectl get nodes
-```
-
-All three nodes (`minikube`, `minikube-m02`, `minikube-m03`) are `Ready`.
-
-![Three nodes Ready](image.png)
-
-## 2. Create the namespace
-
-```powershell
-kubectl apply -f namespace.yaml
-```
-
-## 3. Write the Deployment
-
-The starting file was generated with a client-side dry run, then edited:
-
-```powershell
-kubectl create deployment web-deployment --image=nginx:1.27 --replicas=3 -n webapp --dry-run=client -o yaml > deployment.yaml
-```
-
-Edits made to the generated file:
-
-- Changed the label from `app: web-deployment` to `app: web` in `metadata.labels`, `selector.matchLabels` and the Pod template labels.
-- Added `shareProcessNamespace: true` to the Pod spec.
-- Added the `init-done` init container (`busybox:1.36`, `echo done`).
-- Overrode the `nginx` command with `/bin/sh -c`: it writes the page, then runs `nginx -g 'daemon off;'`.
-- Added the `time-updater` sidecar with `SYS_PTRACE` and the update loop.
-- No `volumes` are defined.
-
-## 4. Deploy and check
-
-```powershell
-kubectl apply -f deployment.yaml
-kubectl get pods -n webapp -w
-kubectl port-forward -n webapp deploy/web-deployment 8080:80
-```
-
-### Deployment is ready
-
-`READY 3/3`.
-
-![Deployment ready](image-1.png)
-
-### Pods are running
-
-Three Pods, each `2/2 Running` (the finished init container is not counted).
-
-![Pods running](image-2.png)
-
-### Page loads and the time changes
-
-`http://localhost:8080` shows a different time after a refresh 5 seconds later (NB. the screenshots are more than 5 seconds apart).
-
-![Browser, first load](image-3.png)
-![Browser, after refresh](image-4.png)
-
-## 5. Verify the containers
-
-### Container names
-
-Expected output: `init-done nginx time-updater`.
-
-```powershell
-kubectl get pods -n webapp -l app=web -o jsonpath='{.items[0].spec.initContainers[*].name} {.items[0].spec.containers[*].name}'
-```
-
-![Container names](image-5.png)
-
-### Init container succeeded
-
-```powershell
-kubectl logs deploy/web-deployment -n webapp -c init-done
-```
-
-![Init container logs](image-6.png)
-
-### Sidecar sees nginx
-
-`ps` from the sidecar lists `nginx: master process`, which confirms the shared process namespace.
-
-```powershell
-kubectl exec deploy/web-deployment -n webapp -c time-updater -- ps
-```
-
-![ps output from the sidecar](image-7.png)
-
-### Time updates
-
-Reading `index.html` twice, 5 seconds apart, returns two different times.
-
-```powershell
-kubectl exec deploy/web-deployment -n webapp -c nginx -- cat /usr/share/nginx/html/index.html
-```
-
-![index.html read twice](image-8.png)
-
-### No volumes
-
-The command returns empty output.
-
-```powershell
-kubectl get deploy web-deployment -n webapp -o jsonpath='{.spec.template.spec.volumes}'
-```
-
-![Empty volumes](image-9.png)
-
-## 6. Make the init container fail
-
-Only the init container command was changed:
-
-```yaml
-command: ["sh", "-c", "echo 'init failed'; exit 1"]
-```
-
-```powershell
-kubectl apply -f deployment.yaml
-kubectl get pods -n webapp -w
-```
-
-### Pod status
-
-The new Pod stays at `0/2` and alternates between `Init:Error` and `Init:CrashLoopBackOff`. The 3 old Pods remain `2/2 Running`.
-
-![Failing Pod and the 3 old Pods](image-10.png)
-
-### Error details
-
-`kubectl describe pod <new-pod> -n webapp` shows `Exit Code: 1` for `init-done`.
-
-![describe output with Exit Code 1](image-11.png)
-
-## 7. Fix it
-
-The original command was restored and applied:
-
-```yaml
-command: ["sh", "-c", "echo done"]
-```
-
-```powershell
-kubectl apply -f deployment.yaml
-kubectl get deploy web-deployment -n webapp
-```
-
-The restored template matched the original one, so the Deployment reused the original ReplicaSet and scaled the failed one to 0. The result is `READY 3/3` with no new Pods created.
-
-![Deployment back to 3/3](image-12.png)
-
-## Answers
-
-**Which status does the new Pod show?**
-The new Pod stays at `0/2` and alternates between `Init:Error` and `Init:CrashLoopBackOff`. `Init:Error` appears right after the init container exits with code 1. `Init:CrashLoopBackOff` appears while Kubernetes waits before retrying. The wait roughly doubles after each failure, up to 5 minutes.
-
-**Do nginx and time-updater start?**
-No. Init containers must finish successfully (exit code 0) before any app container starts. Because `init-done` keeps failing, neither `nginx` nor `time-updater` is created.
-
-**Is the page still reachable, and why?**
-Yes. The Deployment uses a rolling update: it creates a new Pod first and deletes an old Pod only after the new one is Ready. The new Pod never becomes Ready, so the 3 old Pods keep running and serving traffic. After 10 minutes `kubectl rollout status` reports `exceeded its progress deadline`, but Kubernetes does not roll back on its own.
-
-## Clean up
-
-```powershell
-kubectl delete namespace webapp
-```
