@@ -12,7 +12,7 @@ The app (`webapp/`) and the MySQL image (`mysql/`) are provided. They are built,
 
 ## Architecture
 
-![Session 2 architecture](architecture.png)
+![Session 2 architecture](images/architecture.png)
 
 Browser → Ingress Controller → Ingress `webapp-ingress` → Service `webapp-api` (80 → 8000) → 2 app Pods → Service `mysql` (3306) → MySQL Pod → `mysql-pvc` → `mysql-pv` (on `minikube-m02`).
 
@@ -37,57 +37,57 @@ The files are applied in this order, so everything a Pod refers to by name alrea
 
 - The `minikube image ls` output showing both `webapp-api:task2` and `webapp-mysql:task2`
 
-![minikube image ls](image-13.png)
+![minikube image ls](../Task-1/image-13.png)
 
 - Secret (`DATA 3`) and ConfigMap (`DATA 5`)
 
-![Secret and ConfigMap](image-14.png)
+![Secret and ConfigMap](../Task-1/image-14.png)
 
 - PV and PVC bound (`2Gi`)
 
-![PV and PVC bound](image-15.png)
+![PV and PVC bound](../Task-1/image-15.png)
 
 - Deployments ready (`mysql 1/1`, `webapp-api 2/2`)
 
-![Deployments ready](image-17.png)
+![Deployments ready](../Task-1/image-17.png)
 
 - 5: MySQL on the PV node (`minikube-m02`)
 
-![MySQL on the PV node](image-16.png)
+![MySQL on the PV node](../Task-1/image-16.png)
 
 - 6: App env (values from the ConfigMap and the Secret)
 
-![App env](image-19.png)
+![App env](../Task-1/image-19.png)
 
 - 7: Default data (2 default messages)
 
-![Default data](image-18.png)
+![Default data](../Task-1/image-18.png)
 
 - 8: Ingress (class `nginx`, address filled)
 
-![Ingress](image-20.png)
+![Ingress](../Task-1/image-20.png)
 
 - The app in the browser
 
-![Screenshot of the page](image-21.png)
+![Screenshot of the page](../Task-1/image-21.png)
 
 - 9: App info
 
-![App info](image-22.png)
+![App info](../Task-1/image-22.png)
 
 - 10: Write a message
 
-![Write a message](image-24.png)
+![Write a message](../Task-1/image-24.png)
 
 - 11: Read messages
 
-![Read messages](image-25.png)
+![Read messages](../Task-1/image-25.png)
 
 - 12: Data survives a restart (the MySQL Pod was deleted and recreated, and the message is still there)
 
-![MySQL Pod deleted and recreated](image-26.png)
+![MySQL Pod deleted and recreated](../Task-1/image-26.png)
 
-![Messages after the restart](image-27.png)
+![Messages after the restart](../Task-1/image-27.png)
 
 ## Notes
 
